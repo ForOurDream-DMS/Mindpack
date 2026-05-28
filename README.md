@@ -1,8 +1,8 @@
 # Mindpack
 
-**Turn an LLM Wiki / Markdown knowledge base into a portable runtime context pack for LLMs.**
+**Turn conversations and Markdown knowledge bases into portable runtime context packs for LLMs.**
 
-Mindpack is a local-first Python CLI for compiling a structured Markdown knowledge base into a deterministic, portable context bundle. It is designed for teams and builders who want LLM behavior to carry more than a prompt: a persona, rules, a knowledge graph, provenance, evaluation rubrics, and a ready-to-send runtime adapter payload.
+Mindpack is a local-first Python CLI for compiling reviewed knowledge into deterministic, portable context bundles. It can compile a structured Markdown wiki, or it can accumulate explicit ontology candidates from LLM conversation logs and promote only reviewed records into an AI-ready ontology pack. It is designed for teams and builders who want LLM behavior to carry more than a prompt: a persona, rules, an ontology/knowledge graph, provenance, evaluation rubrics, and a ready-to-send runtime adapter payload.
 
 ## Why use Mindpack?
 
@@ -19,6 +19,10 @@ Mindpack sits in the middle:
 ## Features
 
 - Initialize an example LLM Wiki with `init-wiki`.
+- Initialize a local ontology workspace with `init-ontology`.
+- Ingest LLM conversation logs as raw sources and extract explicit ontology candidates with `ingest-conversation`.
+- Promote only reviewed candidate IDs into approved ontology with `approve-candidates`.
+- Compile approved ontology entries into a Mindpack directory with `compile-ontology`.
 - Compile Markdown wiki pages into a Mindpack directory.
 - Validate required pack files, JSON/JSONL structure, rules, provenance, and graph edges.
 - Build runtime adapter context with persona, selected rules, relevant graph nodes, graph paths, citations, and the user question fenced as untrusted input.
@@ -28,7 +32,50 @@ Mindpack sits in the middle:
 - Preserve provenance with relative source labels and SHA-256 hashes.
 - Validate wikilink graph edges so compiled packs do not contain broken internal links.
 
-## Quickstart
+## Quickstart: conversation logs to an ontology pack
+
+Mindpack can treat LLM conversations as raw source material, extract explicit ontology candidates, and compile only approved records into a portable runtime pack. This keeps raw chat logs out of the compiled pack by default.
+
+From the repository root:
+
+```bash
+mkdir -p /tmp/mindpack-demo
+printf '%s\n' \
+  'Concept: Review Queue - Candidate records wait for explicit approval.' \
+  'Must: Approved ontology must exclude raw conversation transcripts.' \
+  'Prefer: Keep the canonical ontology file-first and git-friendly.' \
+  'This ordinary chat line stays raw only and is not a candidate.' \
+  > /tmp/mindpack-demo/conversation.md
+
+python3 -m mindpack_kit init-ontology --out /tmp/mindpack-demo/ontology --pack-id mindpack.demo-ontology --title "Demo Ontology"
+python3 -m mindpack_kit ingest-conversation /tmp/mindpack-demo/conversation.md --ontology /tmp/mindpack-demo/ontology --source-id demo-chat
+
+# Inspect /tmp/mindpack-demo/ontology/review/pending.jsonl, then approve explicit candidate IDs.
+python3 - <<'PY'
+import json, subprocess
+from pathlib import Path
+pending = Path('/tmp/mindpack-demo/ontology/review/pending.jsonl')
+ids = [json.loads(line)['id'] for line in pending.read_text().splitlines() if line.strip()][:2]
+if not ids:
+    raise SystemExit('no pending candidates found')
+subprocess.check_call(['python3', '-m', 'mindpack_kit', 'approve-candidates', '/tmp/mindpack-demo/ontology', *sum((['--candidate-id', item] for item in ids), [])])
+PY
+
+python3 -m mindpack_kit compile-ontology /tmp/mindpack-demo/ontology --out /tmp/mindpack-demo/pack --pack-id mindpack.demo-ontology --title "Demo Ontology"
+python3 -m mindpack_kit validate /tmp/mindpack-demo/pack
+python3 -m mindpack_kit run /tmp/mindpack-demo/pack --question "How should approved ontology handle raw conversations?" --out /tmp/mindpack-demo/pack/samples/runtime_context.md
+```
+
+The ontology workflow has four explicit stages:
+
+1. **Raw conversation**: a local LLM conversation log is stored under `raw/conversations/`.
+2. **Candidates**: only explicit tagged lines such as `Concept:`, `Must:`, `Avoid:`, `Prefer:`, `Preference:`, `Claim:`, and `Case:` become pending records.
+3. **Review**: candidate IDs are inspected and approved explicitly; there is no automatic merge into the ontology.
+4. **Approved ontology**: only approved records are compiled into `ontology.jsonl`, graph nodes, rules, provenance, and runtime context.
+
+Generated `dist/` output is intentionally ignored by git. Raw conversations and generated review queues are also ignored so private source logs are not committed accidentally.
+
+## Quickstart: Markdown wiki to Mindpack
 
 From the repository root:
 
@@ -39,7 +86,7 @@ python3 -m mindpack_kit validate dist/founder-idea-evaluator
 python3 -m mindpack_kit run dist/founder-idea-evaluator --question "Should this idea continue after strict commerce validation?" --out dist/founder-idea-evaluator/samples/runtime_context.md
 ```
 
-The quickstart uses a generic public profile:
+The wiki quickstart uses a generic public profile:
 
 - Profile: `founder-idea-evaluator`
 - Pack ID: `mindpack.founder-idea-evaluator`
@@ -88,6 +135,7 @@ dist/founder-idea-evaluator/
 ├── persona.yaml               # primary runtime persona
 ├── provenance.json            # relative source paths and SHA-256 hashes
 ├── evals.json                 # rubrics and checklists
+├── ontology.jsonl             # approved ontology entries, if any
 ├── quality_report.json        # compile-time counts and status
 ├── README.md                  # pack-local usage notes
 └── samples/
@@ -111,7 +159,8 @@ The runtime payload is not a final answer. It is the grounded context an LLM can
 Mindpack is:
 
 - A local compiler from Markdown wiki folders to portable LLM context packs.
-- A lightweight structure for persona, rules, graph records, provenance, and evals.
+- A local conversation-to-ontology workflow where raw logs produce pending candidates and explicit approval produces runtime context.
+- A lightweight structure for persona, rules, graph records, ontology records, provenance, and evals.
 - A deterministic runtime context builder for adapter pipelines.
 - A simple format you can inspect, diff, zip, and regenerate.
 

@@ -9,11 +9,12 @@ Mindpack compiles an LLM Wiki / Markdown knowledge base into a portable runtime 
 A compiled Mindpack includes:
 
 - `mindpack.yaml` — pack metadata
-- `graph.jsonl` — nodes and validated wikilink edges
+- `graph.jsonl` — nodes and validated wikilink edges or ontology graph nodes
 - `rules.json` — `must`, `avoid`, and `prefer` rules
 - `persona.yaml` — primary runtime persona
 - `provenance.json` — relative source paths and SHA-256 hashes
 - `evals.json` — evaluation rubrics/checklists
+- `ontology.jsonl` — approved ontology entries, if any
 - `samples/runtime_context.md` — context payload to send to an LLM
 
 ## One-pass setup and smoke test
@@ -34,6 +35,33 @@ Expected result:
 - `dist/founder-idea-evaluator/` is created
 - validation prints `VALID`
 - `dist/founder-idea-evaluator/samples/runtime_context.md` exists
+
+## Conversation-to-ontology smoke test
+
+Use this when testing the ontology workflow without publishing private conversations:
+
+```bash
+mkdir -p /tmp/mindpack-demo
+printf '%s\n' \
+  'Concept: Review Queue - Candidate records wait for explicit approval.' \
+  'Must: Approved ontology must exclude raw conversation transcripts.' \
+  'Prefer: Keep the canonical ontology file-first and git-friendly.' \
+  > /tmp/mindpack-demo/conversation.md
+python3 -m mindpack_kit init-ontology --out /tmp/mindpack-demo/ontology --pack-id mindpack.demo --title "Demo Ontology"
+python3 -m mindpack_kit ingest-conversation /tmp/mindpack-demo/conversation.md --ontology /tmp/mindpack-demo/ontology --source-id demo-chat
+python3 - <<'PY'
+import json, subprocess
+from pathlib import Path
+pending = Path('/tmp/mindpack-demo/ontology/review/pending.jsonl')
+ids = [json.loads(line)['id'] for line in pending.read_text().splitlines() if line.strip()][:2]
+subprocess.check_call(['python3', '-m', 'mindpack_kit', 'approve-candidates', '/tmp/mindpack-demo/ontology', *sum((['--candidate-id', item] for item in ids), [])])
+PY
+python3 -m mindpack_kit compile-ontology /tmp/mindpack-demo/ontology --out /tmp/mindpack-demo/pack --pack-id mindpack.demo --title "Demo Ontology"
+python3 -m mindpack_kit validate /tmp/mindpack-demo/pack
+python3 -m mindpack_kit run /tmp/mindpack-demo/pack --question "How should approved ontology handle raw conversations?"
+```
+
+Raw conversations and generated review queues are private working material by default. Do not commit real chat exports, pending candidates, local absolute paths, secrets, or personal data.
 
 ## Optional editable install
 

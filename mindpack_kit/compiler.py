@@ -9,6 +9,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from urllib.parse import unquote
 
 from . import __version__
 
@@ -19,6 +20,7 @@ REQUIRED_PACK_FILES = [
     "persona.yaml",
     "provenance.json",
     "evals.json",
+    "ontology.jsonl",
     "samples/runtime_context.md",
     "quality_report.json",
     "README.md",
@@ -284,6 +286,7 @@ def compile_mindpack(wiki_dir: str | Path, out_dir: str | Path, pack_id: str, ti
     write_text(pack_root / "persona.yaml", render_persona_yaml(persona_page))
     write_json(pack_root / "provenance.json", provenance)
     write_json(pack_root / "evals.json", {"evaluations": evals})
+    write_jsonl(pack_root / "ontology.jsonl", [])
     write_json(pack_root / "quality_report.json", quality_report)
     write_text(pack_root / "README.md", render_pack_readme(pack_id, title, quality_report))
 
@@ -462,6 +465,7 @@ def build_quality_report(
         "graph_edge_count": sum(1 for record in graph_records if record.get("record_type") == "edge"),
         "rule_counts": {rule_type: len(rules.get(rule_type, [])) for rule_type in RULE_TYPES},
         "evaluation_count": len(evals),
+        "ontology_entry_count": 0,
         "raw_excluded": True,
         "required_files": REQUIRED_PACK_FILES,
     }
@@ -515,6 +519,7 @@ This Mindpack was compiled by `mindpack_kit` from an LLM Wiki-style Markdown fol
 - `persona.yaml`: primary runtime persona
 - `provenance.json`: source path and SHA-256 provenance for compiled pages
 - `evals.json`: evaluation rubrics and checklists
+- `ontology.jsonl`: approved ontology entries, if any
 - `samples/runtime_context.md`: deterministic sample adapter payload
 - `quality_report.json`: compile-time counts
 
@@ -580,12 +585,9 @@ def validate_pack(pack_dir: str | Path) -> Tuple[bool, List[str]]:
         try:
             graph_records = read_jsonl(graph_path)
             has_node = any(record.get("record_type") == "node" for record in graph_records)
-            has_edge = any(record.get("record_type") == "edge" for record in graph_records)
             graph_node_ids = {str(record.get("id")) for record in graph_records if record.get("record_type") == "node" and record.get("id")}
             if not has_node:
                 messages.append("graph.jsonl has no node records")
-            if not has_edge:
-                messages.append("graph.jsonl has no edge records")
             if graph_node_ids:
                 for record in graph_records:
                     if record.get("record_type") != "edge" or record.get("external") is True:
@@ -599,6 +601,16 @@ def validate_pack(pack_dir: str | Path) -> Tuple[bool, List[str]]:
         except ValueError as exc:
             messages.append(str(exc))
 
+    ontology_path = root / "ontology.jsonl"
+    ontology_records: List[Dict[str, Any]] = []
+    ontology_read_error: Optional[str] = None
+    if ontology_path.is_file():
+        try:
+            ontology_records = read_jsonl(ontology_path)
+        except ValueError as exc:
+            ontology_read_error = str(exc)
+    has_ontology_entries = any(record.get("record_type") == "ontology_entry" for record in ontology_records)
+
     rules_path = root / "rules.json"
     if rules_path.is_file():
         try:
@@ -607,7 +619,7 @@ def validate_pack(pack_dir: str | Path) -> Tuple[bool, List[str]]:
                 messages.append("rules.json is not an object")
             else:
                 rule_count = sum(len(rules.get(rule_type, [])) for rule_type in RULE_TYPES if isinstance(rules.get(rule_type, []), list))
-                if rule_count < 1:
+                if rule_count < 1 and not has_ontology_entries:
                     messages.append("rules.json has no must/avoid/prefer rules")
         except (json.JSONDecodeError, OSError) as exc:
             messages.append(f"rules.json cannot be read: {exc}")
@@ -621,6 +633,13 @@ def validate_pack(pack_dir: str | Path) -> Tuple[bool, List[str]]:
                 messages.append("provenance.json compiled_pages is not a list")
             else:
                 provenance_ids = {str(page.get("id")) for page in pages if isinstance(page, dict) and page.get("id")}
+                for page in pages:
+                    if not isinstance(page, dict):
+                        messages.append("provenance.json compiled_pages contains a non-object record")
+                        continue
+                    source_path = str(page.get("source_path") or "")
+                    if source_path and not is_safe_relative_source_path(source_path):
+                        messages.append(f"unsafe provenance source path is not allowed: {source_path}")
                 graph_node_ids = {str(record.get("id")) for record in graph_records if record.get("record_type") == "node" and record.get("id")}
                 missing = sorted(graph_node_ids - provenance_ids)
                 if missing:
@@ -628,7 +647,60 @@ def validate_pack(pack_dir: str | Path) -> Tuple[bool, List[str]]:
         except (json.JSONDecodeError, OSError) as exc:
             messages.append(f"provenance.json cannot be read: {exc}")
 
+    if ontology_path.is_file():
+        if ontology_read_error:
+            messages.append(ontology_read_error)
+        else:
+            for index, record in enumerate(ontology_records, start=1):
+                if record.get("record_type") != "ontology_entry":
+                    messages.append(f"ontology.jsonl record {index} is not an ontology_entry")
+                if not record.get("id"):
+                    messages.append(f"ontology.jsonl record {index} is missing id")
+                if not record.get("kind"):
+                    messages.append(f"ontology.jsonl record {index} is missing kind")
+                if not record.get("statement"):
+                    messages.append(f"ontology.jsonl record {index} is missing statement")
+                source_refs = record.get("source_refs", [])
+                if source_refs is None:
+                    source_refs = []
+                if not isinstance(source_refs, list):
+                    messages.append(f"ontology.jsonl record {index} source_refs is not a list")
+                    continue
+                for ref in source_refs:
+                    if not isinstance(ref, dict):
+                        messages.append(f"ontology.jsonl record {index} has non-object source_ref")
+                        continue
+                    source_path = str(ref.get("source_path") or "")
+                    if source_path and not is_safe_relative_source_path(source_path):
+                        messages.append(f"unsafe ontology source path is not allowed: {source_path}")
+
     return not messages, messages
+
+
+def is_safe_relative_source_path(source_path: str) -> bool:
+    normalized = fully_unquote(source_path).replace("\\", "/").strip()
+    if not normalized:
+        return False
+    if normalized.startswith(("/", "~")):
+        return False
+    if "://" in normalized or EXTERNAL_SCHEME_RE.match(normalized):
+        return False
+    parts = [part for part in normalized.split("/") if part]
+    if any(part == ".." for part in parts):
+        return False
+    if parts and ":" in parts[0]:
+        return False
+    return True
+
+
+def fully_unquote(value: str, max_rounds: int = 5) -> str:
+    decoded = value
+    for _ in range(max_rounds):
+        next_decoded = unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    return decoded
 
 
 def load_mindpack_metadata(pack_dir: Path) -> Dict[str, Any]:
@@ -744,8 +816,11 @@ def build_runtime_context(pack_dir: str | Path, question: str) -> str:
     runtime_node_records = [record for record in node_records if not is_default_runtime_excluded_node(record)]
     rules_data = read_json(root / "rules.json") if (root / "rules.json").is_file() else {rule_type: [] for rule_type in RULE_TYPES}
     rules = flatten_rules(rules_data if isinstance(rules_data, dict) else {})
+    ontology_records = read_jsonl(root / "ontology.jsonl") if (root / "ontology.jsonl").is_file() else []
+    ontology_entries = [record for record in ontology_records if record.get("record_type") == "ontology_entry" and record.get("status") == "approved"]
 
     selected_rules = select_scored(question, rules, ("title", "text", "path"), limit=6)
+    selected_ontology = select_scored(question, ontology_entries, ("label", "statement", "kind", "rule_type"), limit=8)
     selected_nodes = select_scored(question, runtime_node_records, ("title", "text", "path", "kind"), limit=8)
 
     selected_ids = {str(item.get("id")) for _, item in selected_nodes if item.get("id")}
@@ -805,6 +880,28 @@ def build_runtime_context(pack_dir: str | Path, question: str) -> str:
             )
     else:
         lines.extend(["- No rules were found in this Mindpack.", ""])
+
+    lines.extend(["## Selected Ontology", ""])
+    if selected_ontology:
+        for score, entry in selected_ontology:
+            refs = entry.get("source_refs") if isinstance(entry.get("source_refs"), list) else []
+            source_label = "unknown"
+            if refs and isinstance(refs[0], dict):
+                source_label = str(refs[0].get("source_path") or "unknown")
+            kind = str(entry.get("kind") or "entry")
+            lines.extend(
+                [
+                    f"### {kind}: {entry.get('label', entry.get('id', 'Untitled Ontology Entry'))}",
+                    "",
+                    f"- Source: `{source_label}`",
+                    f"- Match score: {score}",
+                    "",
+                    trim_markdown(str(entry.get("statement", "")), 1200),
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["- No approved ontology entries were selected.", ""])
 
     lines.extend(["## Relevant Nodes", ""])
     if selected_nodes:
@@ -869,7 +966,7 @@ def collect_citations(
         path = str(item.get("path") or item.get("id") or "")
         if not path:
             continue
-        if not path.endswith(".md"):
+        if not path.endswith((".md", ".jsonl", ".json", ".yaml", ".yml")):
             path = f"{path}.md"
         if path in seen:
             continue

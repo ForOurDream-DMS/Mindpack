@@ -100,6 +100,7 @@ def test_compile_emits_required_mindpack_files(tmp_path):
         "persona.yaml",
         "provenance.json",
         "evals.json",
+        "ontology.jsonl",
         "samples/runtime_context.md",
         "quality_report.json",
         "README.md",
