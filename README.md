@@ -45,6 +45,19 @@ The quickstart uses a generic public profile:
 - Pack ID: `mindpack.founder-idea-evaluator`
 - Title: `Founder Idea Evaluator`
 
+## Using Mindpack with an AI agent
+
+Most Mindpack users will probably work through an AI coding agent. The repo includes AI-friendly instructions so an agent can clone, test, compile, validate, and generate runtime context in one pass.
+
+- Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working inside this repo.
+- Use [`docs/AI_QUICKSTART.md`](docs/AI_QUICKSTART.md) for a copy-paste prompt you can give to Codex, Claude Code, Cursor, OpenCode, or another coding agent.
+
+One-shot agent prompt:
+
+```text
+Clone https://github.com/ForOurDream-DMS/Mindpack, run the tests, generate the bundled Founder Idea Evaluator wiki, compile it into a Mindpack, validate it, and create runtime context for this question: "Should this idea continue after strict commerce validation?" Report the generated files and validation result. Do not publish generated dist output unless I explicitly ask.
+```
+
 ## Source wiki layout
 
 An LLM Wiki is just a Markdown folder. Pages may include simple YAML-like frontmatter and `[[wikilinks]]`:
