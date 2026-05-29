@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from .compiler import compile_mindpack, validate_pack, write_runtime_context
+from .domains import discover_domains
 from .ontology import approve_candidates, compile_ontology_pack, ingest_conversation, init_ontology_workspace
 from .wiki import init_wiki
 
@@ -37,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     compile_ontology_parser.add_argument("--out", required=True, help="Output Mindpack directory")
     compile_ontology_parser.add_argument("--pack-id", required=True, help="Stable Mindpack ID")
     compile_ontology_parser.add_argument("--title", required=True, help="Human-readable Mindpack title")
+
+    discover_domains_parser = subparsers.add_parser("discover-domains", help="Discover multiple Mindpack domains from source files or folders.")
+    discover_domains_parser.add_argument("source_paths", nargs="+", help="Source text file or directory; repeat for multiple roots")
+    discover_domains_parser.add_argument("--out", required=True, help="Output domain registry directory")
 
     compile_parser = subparsers.add_parser("compile", help="Compile a source wiki into a Mindpack directory.")
     compile_parser.add_argument("wiki_dir", help="Source wiki directory")
@@ -89,6 +94,15 @@ def main(argv: list[str] | None = None) -> int:
                 "Compiled ontology Mindpack at "
                 f"{args.out} ({report['ontology_entry_count']} approved entries, "
                 f"{report['graph_node_count']} graph nodes)."
+            )
+            return 0
+
+        if args.command == "discover-domains":
+            report = discover_domains(args.source_paths, args.out)
+            print(
+                "Discovered "
+                f"{report['domain_count']} domains from {report['source_count']} sources "
+                f"into {args.out}."
             )
             return 0
 
