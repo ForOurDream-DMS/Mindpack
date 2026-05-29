@@ -193,6 +193,7 @@ def discover_domains(source_paths: Sequence[str | Path], out_dir: str | Path) ->
     sources = load_sources(source_paths, exclude_roots=[out_root])
     assignments: List[Dict[str, Any]] = []
     unassigned: List[Dict[str, Any]] = []
+    domain_candidates: List[Dict[str, Any]] = []
     domain_hits: Dict[str, Dict[str, Any]] = {}
 
     for source in sources:
@@ -219,15 +220,15 @@ def discover_domains(source_paths: Sequence[str | Path], out_dir: str | Path) ->
                 hit["score"] += int(domain["score"])
                 hit["matched_keywords"] = sorted(set(hit["matched_keywords"]) | set(domain["matched_keywords"]))
         else:
-            unassigned.append(
-                {
-                    "record_type": "unassigned_source",
-                    "source_id": source["source_id"],
-                    "path": source["display_path"],
-                    "sha256": source["sha256"],
-                    "reason": "no known domain keyword matched",
-                }
-            )
+            unassigned_record = {
+                "record_type": "unassigned_source",
+                "source_id": source["source_id"],
+                "path": source["display_path"],
+                "sha256": source["sha256"],
+                "reason": "no known domain keyword matched",
+            }
+            unassigned.append(unassigned_record)
+            domain_candidates.append(domain_candidate_from_unassigned_source(source))
 
     registry_domains = [domain_record(definition, domain_hits[definition.id]) for definition in DOMAIN_DEFINITIONS if definition.id in domain_hits]
     registry = {
@@ -237,15 +238,17 @@ def discover_domains(source_paths: Sequence[str | Path], out_dir: str | Path) ->
         "source_count": len(sources),
         "assigned_source_count": len(assignments),
         "unassigned_source_count": len(unassigned),
+        "pending_domain_candidate_count": len(domain_candidates),
         "domains": registry_domains,
     }
 
-    write_domain_artifacts(out_root, registry, assignments, unassigned)
+    write_domain_artifacts(out_root, registry, assignments, unassigned, domain_candidates)
     return {
         "source_count": len(sources),
         "domain_count": len(registry_domains),
         "assigned_source_count": len(assignments),
         "unassigned_source_count": len(unassigned),
+        "pending_domain_candidate_count": len(domain_candidates),
         "registry_path": "registry.json",
     }
 
@@ -409,11 +412,32 @@ def domain_record(definition: DomainDefinition, hit: Mapping[str, Any]) -> Dict[
     }
 
 
+def domain_candidate_from_unassigned_source(source: Mapping[str, Any]) -> Dict[str, Any]:
+    """Create a review-only domain candidate without copying raw source text."""
+    digest = str(source["sha256"])
+    return {
+        "record_type": "domain_candidate",
+        "id": f"domain-candidate-{digest[:12]}",
+        "suggested_domain_id": f"custom-domain-{digest[:10]}",
+        "title": "Unmatched Source Domain Candidate",
+        "status": "pending",
+        "reason": "source did not match known domain definitions; review before adding a new active domain",
+        "source_refs": [
+            {
+                "source_id": str(source["source_id"]),
+                "source_path": str(source["display_path"]),
+                "sha256": digest,
+            }
+        ],
+    }
+
+
 def write_domain_artifacts(
     out_root: Path,
     registry: Mapping[str, Any],
     assignments: Sequence[Mapping[str, Any]],
     unassigned: Sequence[Mapping[str, Any]],
+    domain_candidates: Sequence[Mapping[str, Any]],
 ) -> None:
     out_root.mkdir(parents=True, exist_ok=True)
     reset_generated_domains_dir(out_root)
@@ -422,6 +446,7 @@ def write_domain_artifacts(
     write_jsonl(out_root / "domain_manifest.jsonl", registry["domains"])
     write_jsonl(out_root / "source_assignments.jsonl", assignments)
     write_jsonl(out_root / "unassigned_sources.jsonl", unassigned)
+    write_jsonl(out_root / "domain_candidates.jsonl", domain_candidates)
     (out_root / "domain_coverage_report.md").write_text(render_coverage_report(registry, assignments, unassigned), encoding="utf-8")
 
     domains_root = out_root / "domains"
@@ -473,6 +498,7 @@ def render_coverage_report(registry: Mapping[str, Any], assignments: Sequence[Ma
         f"- Active domains: {len(registry['domains'])}",
         f"- Assigned sources: {len(assignments)}",
         f"- Unassigned sources: {len(unassigned)}",
+        f"- Pending domain candidates: {registry.get('pending_domain_candidate_count', 0)}",
         "",
         "## Active Domains",
     ]

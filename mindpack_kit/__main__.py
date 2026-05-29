@@ -102,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "Discovered "
                 f"{report['domain_count']} domains from {report['source_count']} sources "
+                f"with {report['pending_domain_candidate_count']} pending domain candidates "
                 f"into {args.out}."
             )
             return 0

@@ -67,7 +67,7 @@ def test_discover_domains_finds_operator_multi_domain_registry(tmp_path):
     assert "아이디어 도메인 하나로 압축하지 않음" in report
 
 
-def test_discover_domains_keeps_unmatched_sources_unassigned(tmp_path):
+def test_discover_domains_keeps_unmatched_sources_unassigned_and_suggests_pending_domain(tmp_path):
     source = tmp_path / "unrelated.md"
     source.write_text(
         "A small note about watering balcony herbs and choosing ceramic pots.",
@@ -75,14 +75,32 @@ def test_discover_domains_keeps_unmatched_sources_unassigned(tmp_path):
     )
     out_dir = tmp_path / "domain-registry"
 
-    run_cli("discover-domains", str(source), "--out", str(out_dir))
+    result = run_cli("discover-domains", str(source), "--out", str(out_dir))
+    assert "1 pending domain candidates" in result.stdout
 
     registry = json.loads((out_dir / "registry.json").read_text(encoding="utf-8"))
     assert registry["domains"] == []
+    assert registry["pending_domain_candidate_count"] == 1
     unassigned = read_jsonl(out_dir / "unassigned_sources.jsonl")
     assert len(unassigned) == 1
     assert unassigned[0]["source_id"].startswith("source-")
     assert unassigned[0]["path"].endswith("unrelated.md")
+
+    candidates = read_jsonl(out_dir / "domain_candidates.jsonl")
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["record_type"] == "domain_candidate"
+    assert candidate["status"] == "pending"
+    assert candidate["id"].startswith("domain-candidate-")
+    assert candidate["suggested_domain_id"].startswith("custom-domain-")
+    assert candidate["source_refs"] == [
+        {
+            "source_id": unassigned[0]["source_id"],
+            "source_path": "unrelated.md",
+            "sha256": unassigned[0]["sha256"],
+        }
+    ]
+    assert "watering balcony herbs" not in json.dumps(candidates, ensure_ascii=False)
 
 
 def test_discover_domains_ignores_generic_single_keyword_noise(tmp_path):
@@ -172,7 +190,9 @@ def test_discover_domains_rerun_skips_nested_output_and_removes_stale_domain_dir
     second_registry = json.loads((out_dir / "registry.json").read_text(encoding="utf-8"))
     assert second_registry["source_count"] == 1
     assert second_registry["domains"] == []
+    assert second_registry["pending_domain_candidate_count"] == 1
     assert read_jsonl(out_dir / "domain_manifest.jsonl") == []
     assert read_jsonl(out_dir / "source_assignments.jsonl") == []
     assert len(read_jsonl(out_dir / "unassigned_sources.jsonl")) == 1
+    assert len(read_jsonl(out_dir / "domain_candidates.jsonl")) == 1
     assert not (out_dir / "domains" / "oss-product-strategy").exists()
