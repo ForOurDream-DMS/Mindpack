@@ -172,6 +172,18 @@ Mindpack is not:
 - A prompt marketplace.
 - A final-answer generator by itself.
 
+## Contributing
+
+Contributions are welcome through fork + pull request. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md), and use the issue templates for bugs, feature requests, or documentation/example improvements.
+
+Mindpack is privacy-sensitive by design. Please use synthetic examples only, and do not commit real conversations, raw source logs, generated review queues, credentials, private paths, or customer data.
+
+Useful community entry points:
+
+- [`good first issue`](https://github.com/ForOurDream-DMS/Mindpack/labels/good%20first%20issue) — small starter tasks.
+- [`help wanted`](https://github.com/ForOurDream-DMS/Mindpack/labels/help%20wanted) — areas where outside contribution is especially useful.
+- [`SECURITY.md`](SECURITY.md) — how to report privacy or security-sensitive issues.
+
 ## Development and testing
 
 The package code uses only the Python standard library. The test suite uses `pytest`.

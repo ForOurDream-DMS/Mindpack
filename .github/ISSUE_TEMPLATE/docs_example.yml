@@ -1,0 +1,32 @@
+name: Documentation or example improvement
+description: Improve README, quickstarts, examples, or public-safe sample packs
+title: "docs: "
+labels: ["documentation", "good first issue"]
+body:
+  - type: textarea
+    id: target
+    attributes:
+      label: What should be improved?
+      placeholder: "README quickstart, ontology example, AI_QUICKSTART, sample pack docs, etc."
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why is this confusing or useful?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+      description: Optional. A short outline or draft is enough.
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public-safety check
+      options:
+        - label: Any proposed example can be synthetic and public-safe.
+          required: true

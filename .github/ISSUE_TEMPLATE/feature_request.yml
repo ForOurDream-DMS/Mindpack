@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest a focused improvement for Mindpack
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep requests focused. Mindpack is local-first, deterministic, and privacy-aware by design.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that Mindpack does not support well yet?
+      placeholder: "I want to compile ... so that ..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI
+        - Markdown wiki compiler
+        - Conversation-to-ontology workflow
+        - Runtime adapter context
+        - Validation / quality report
+        - Documentation
+        - Examples
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. How are you handling this today?
+    validations:
+      required: false
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Design constraints
+      options:
+        - label: This can work without a hosted service.
+          required: false
+        - label: This can avoid committing private source material or generated review queues.
+          required: false
+        - label: This can keep generated output deterministic and diff-friendly.
+          required: false
