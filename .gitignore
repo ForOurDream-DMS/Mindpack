@@ -14,6 +14,14 @@ build/
 *.egg-info/
 
 # Private conversation sources and generated candidate queues
+/private-exports/
+/local-private/
+chat-export.*
+agent-export.*
+*.chat-export.md
+*.chat-export.txt
+*.chat-export.json
+*.chat-export.jsonl
 **/raw/conversations/
 **/review/pending.jsonl
 **/review/accepted.jsonl

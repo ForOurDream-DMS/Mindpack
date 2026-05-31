@@ -123,6 +123,7 @@ def ingest_conversation(source_file: str | Path, ontology_dir: str | Path, sourc
         "source_id": safe_source_id,
         "raw_path": raw_relative.as_posix(),
         "candidate_count": len(candidates),
+        "candidate_ids": [str(candidate.get("id")) for candidate in candidates if candidate.get("id")],
         "pending_path": "review/pending.jsonl",
     }
 
@@ -273,9 +274,17 @@ def ontology_entry_from_candidate(candidate: Mapping[str, Any]) -> Dict[str, Any
     return entry
 
 
-def approve_candidates(ontology_dir: str | Path, candidate_ids: Sequence[str]) -> Dict[str, Any]:
+def approve_candidates(
+    ontology_dir: str | Path,
+    candidate_ids: Sequence[str],
+    approve_all: bool = False,
+    *,
+    source_ref_filter: tuple[str, str] | None = None,
+) -> Dict[str, Any]:
     """Promote explicit candidate IDs into ontology/approved.jsonl."""
-    if not candidate_ids:
+    if approve_all and candidate_ids:
+        raise ValueError("use either explicit --candidate-id values or --all, not both")
+    if not candidate_ids and not approve_all:
         raise ValueError("at least one --candidate-id is required")
 
     root = Path(ontology_dir)
@@ -287,7 +296,10 @@ def approve_candidates(ontology_dir: str | Path, candidate_ids: Sequence[str]) -
 
     selected: List[Dict[str, Any]] = []
     missing: List[str] = []
-    for item_id in candidate_ids:
+    ids_to_approve = list(candidate_by_id) if approve_all else list(candidate_ids)
+    if approve_all and not ids_to_approve:
+        raise ValueError("no pending candidates found; nothing to approve")
+    for item_id in ids_to_approve:
         candidate = candidate_by_id.get(item_id)
         if candidate is None:
             missing.append(item_id)
@@ -301,7 +313,20 @@ def approve_candidates(ontology_dir: str | Path, candidate_ids: Sequence[str]) -
     accepted_log = read_jsonl_if_exists(accepted_path)
 
     for candidate in selected:
-        entry = ontology_entry_from_candidate(candidate)
+        candidate_for_entry = dict(candidate)
+        if source_ref_filter is not None:
+            filter_source_id, filter_source_path = source_ref_filter
+            filtered_refs = [
+                dict(ref)
+                for ref in list(candidate_for_entry.get("source_refs") or [])
+                if isinstance(ref, Mapping)
+                and str(ref.get("source_id") or "") == filter_source_id
+                and str(ref.get("source_path") or "") == filter_source_path
+            ]
+            if not filtered_refs:
+                raise ValueError(f"candidate {candidate_for_entry.get('id')} has no source_refs for current import")
+            candidate_for_entry["source_refs"] = filtered_refs
+        entry = ontology_entry_from_candidate(candidate_for_entry)
         key = ontology_dedupe_key(entry)
         if key in approved_by_key:
             existing = approved_by_key[key]
@@ -309,7 +334,7 @@ def approve_candidates(ontology_dir: str | Path, candidate_ids: Sequence[str]) -
             approved_by_key[key] = existing
         else:
             approved_by_key[key] = entry
-        accepted = dict(candidate)
+        accepted = dict(candidate_for_entry)
         accepted["status"] = "accepted"
         accepted_log.append(accepted)
 

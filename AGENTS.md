@@ -63,6 +63,16 @@ python3 -m mindpack_kit run /tmp/mindpack-demo/pack --question "How should appro
 
 Raw conversations and generated review queues are private working material by default. Do not commit real chat exports, pending candidates, local absolute paths, secrets, or personal data.
 
+## Agent chat import workflow
+
+Use `import-chat` to normalize local generic chat exports, plus the built-in Codex and Claude Code adapter formats, into Mindpack Conversation JSONL before ingestion:
+
+```bash
+python3 -m mindpack_kit import-chat ./agent-export.jsonl --source auto --out /tmp/mindpack-demo/conversation.jsonl --source-id demo-agent-chat
+```
+
+Use `ontology-workflow` only with synthetic or already-reviewed exports when passing `--approve-all-tagged`; otherwise run it without that flag and inspect `review/pending.jsonl` before approving candidate IDs. Never scrape private local agent logs automatically; process only user-provided export files.
+
 ## Optional editable install
 
 No install is required when running from the repository root. If the user asks for a local command, install editable mode:

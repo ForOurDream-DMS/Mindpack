@@ -7,6 +7,7 @@ import sys
 
 from .compiler import compile_mindpack, validate_pack, write_runtime_context
 from .domains import discover_domains
+from .importers import CHAT_SOURCE_CHOICES, import_chat_export, run_ontology_workflow
 from .ontology import approve_candidates, compile_ontology_pack, ingest_conversation, init_ontology_workspace
 from .wiki import init_wiki
 
@@ -29,15 +30,36 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--ontology", required=True, help="Ontology workspace directory")
     ingest_parser.add_argument("--source-id", help="Stable source identifier used for raw/conversations/<source-id>.jsonl")
 
+    import_parser = subparsers.add_parser("import-chat", help="Normalize a local AI-agent chat export into Mindpack Conversation JSONL.")
+    import_parser.add_argument("source_file", help="Local chat export file (.md, .txt, .json, or .jsonl)")
+    import_parser.add_argument("--source", choices=CHAT_SOURCE_CHOICES, default="auto", help="Chat export source format")
+    import_parser.add_argument("--out", help="Output Conversation JSONL path")
+    import_parser.add_argument("--ontology", help="Optional ontology workspace to ingest into after normalization")
+    import_parser.add_argument("--source-id", help="Stable source identifier used for raw/conversations/<source-id>.jsonl")
+    import_parser.add_argument("--conversation-id", help="Stable conversation identifier to write into normalized JSONL")
+    import_parser.add_argument("--title", help="Optional human-readable conversation title")
+    import_parser.add_argument("--url", help="Optional source URL to include in normalized JSONL")
+
     approve_parser = subparsers.add_parser("approve-candidates", help="Promote explicit pending candidate IDs into approved ontology.")
     approve_parser.add_argument("ontology_dir", help="Ontology workspace directory")
     approve_parser.add_argument("--candidate-id", action="append", default=[], help="Candidate ID to approve; repeat for multiple IDs")
+    approve_parser.add_argument("--all", action="store_true", help="Approve all pending candidates after review")
 
     compile_ontology_parser = subparsers.add_parser("compile-ontology", help="Compile approved ontology entries into a Mindpack directory.")
     compile_ontology_parser.add_argument("ontology_dir", help="Ontology workspace directory")
     compile_ontology_parser.add_argument("--out", required=True, help="Output Mindpack directory")
     compile_ontology_parser.add_argument("--pack-id", required=True, help="Stable Mindpack ID")
     compile_ontology_parser.add_argument("--title", required=True, help="Human-readable Mindpack title")
+
+    workflow_parser = subparsers.add_parser("ontology-workflow", help="Import local chat and extract candidates; with --approve-all-tagged, also compile, validate, and write runtime context.")
+    workflow_parser.add_argument("source_file", help="Local chat export or conversation file")
+    workflow_parser.add_argument("--work-dir", required=True, help="Working directory for ontology workspace and compiled pack")
+    workflow_parser.add_argument("--pack-id", required=True, help="Stable Mindpack ID")
+    workflow_parser.add_argument("--title", required=True, help="Human-readable Mindpack title")
+    workflow_parser.add_argument("--question", required=True, help="Question used to generate runtime context")
+    workflow_parser.add_argument("--source", choices=CHAT_SOURCE_CHOICES, default="auto", help="Chat export source format")
+    workflow_parser.add_argument("--source-id", help="Stable source identifier used for raw/conversations/<source-id>.jsonl")
+    workflow_parser.add_argument("--approve-all-tagged", action="store_true", help="Approve current import's tagged candidates and compile immediately; use only for synthetic or already-reviewed exports")
 
     discover_domains_parser = subparsers.add_parser("discover-domains", help="Discover multiple Mindpack domains from source files or folders.")
     discover_domains_parser.add_argument("source_paths", nargs="+", help="Source text file or directory; repeat for multiple roots")
@@ -83,8 +105,29 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
 
+        if args.command == "import-chat":
+            report = import_chat_export(
+                args.source_file,
+                args.out,
+                ontology_dir=args.ontology,
+                source=args.source,
+                source_id=args.source_id,
+                conversation_id=args.conversation_id,
+                title=args.title,
+                url=args.url,
+            )
+            if args.ontology:
+                print(
+                    f"Exported {report['turn_count']} turns to {report['out_path']} "
+                    f"as source_id {report['source_id']}; ingested into {args.ontology} "
+                    f"and extracted {report['candidate_count']} candidates into {report['pending_path']}."
+                )
+            else:
+                print(f"Exported {report['turn_count']} turns to {report['out_path']} as source_id {report['source_id']}.")
+            return 0
+
         if args.command == "approve-candidates":
-            report = approve_candidates(args.ontology_dir, args.candidate_id)
+            report = approve_candidates(args.ontology_dir, args.candidate_id, args.all)
             print(f"Approved {report['approved_count']} candidates into {report['approved_path']}.")
             return 0
 
@@ -95,6 +138,31 @@ def main(argv: list[str] | None = None) -> int:
                 f"{args.out} ({report['ontology_entry_count']} approved entries, "
                 f"{report['graph_node_count']} graph nodes)."
             )
+            return 0
+
+        if args.command == "ontology-workflow":
+            report = run_ontology_workflow(
+                args.source_file,
+                args.work_dir,
+                pack_id=args.pack_id,
+                title=args.title,
+                question=args.question,
+                source=args.source,
+                source_id=args.source_id,
+                approve_all_tagged=args.approve_all_tagged,
+            )
+            if report["status"] == "pending_review":
+                print(
+                    f"Imported {report['turn_count']} turns and extracted {report['candidate_count']} candidates. "
+                    f"Review pending candidates at {report['ontology_dir']}/review/pending.jsonl, then run approve-candidates and compile-ontology."
+                )
+            else:
+                print(
+                    f"Compiled ontology Mindpack at {report['pack_dir']} "
+                    f"({report['ontology_entry_count']} approved entries, {report['graph_node_count']} graph nodes)."
+                )
+                print(f"VALID: {report['pack_dir']}")
+                print(f"Wrote runtime context to {report['runtime_context_path']}")
             return 0
 
         if args.command == "discover-domains":

@@ -75,6 +75,44 @@ The ontology workflow has four explicit stages:
 
 Generated `dist/` output is intentionally ignored by git. Raw conversations and generated review queues are also ignored so private source logs are not committed accidentally.
 
+### One command from a local agent chat export
+
+If you use Codex, Claude Code, Cursor, OpenCode, or another agentic LLM, export or copy the conversation to a local file first. Then Mindpack can normalize the export, extract explicitly tagged ontology lines, compile a pack, validate it, and write the runtime context your next model call can consume:
+
+```bash
+python3 -m mindpack_kit ontology-workflow ./private-exports/agent-export.jsonl \
+  --source auto \
+  --work-dir /tmp/mindpack-local \
+  --pack-id mindpack.local-memory \
+  --title "Local Agent Memory" \
+  --question "What should my next assistant remember from this reviewed ontology?" \
+  --approve-all-tagged
+```
+
+Output to apply to your own model:
+
+```text
+/tmp/mindpack-local/pack/samples/runtime_context.md
+```
+
+Pass that file as the **system/developer/context message** before the user's next question. For OpenAI-compatible, Anthropic-compatible, local llama.cpp, or custom adapters, the pattern is the same: send the runtime context first, then the user question. The runtime context is not a final answer; it is the reviewed operating context for the model.
+
+Minimal adapter example:
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+runtime_context = Path('/tmp/mindpack-local/pack/samples/runtime_context.md').read_text(encoding='utf-8')
+user_question = 'Use my Mindpack context. What should I do next?'
+print('SYSTEM / DEVELOPER CONTEXT:\n')
+print(runtime_context)
+print('\nUSER QUESTION:\n')
+print(user_question)
+PY
+```
+
+`--approve-all-tagged` approves the current import's tagged candidates and compiles immediately. Use it only for synthetic demos or already-reviewed exports. For private workflows, run without that flag first, review `review/pending.jsonl`, approve explicit candidate IDs, then compile. See [`docs/CONVERSATION_FORMAT.md`](docs/CONVERSATION_FORMAT.md), [`docs/import/web-chat-capture.md`](docs/import/web-chat-capture.md), and [`docs/AI_QUICKSTART.md`](docs/AI_QUICKSTART.md).
+
 ## Quickstart: Markdown wiki to Mindpack
 
 From the repository root:
@@ -99,7 +137,24 @@ Most Mindpack users will probably work through an AI coding agent. The repo incl
 - Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working inside this repo.
 - Use [`docs/AI_QUICKSTART.md`](docs/AI_QUICKSTART.md) for a copy-paste prompt you can give to Codex, Claude Code, Cursor, OpenCode, or another coding agent.
 
-One-shot agent prompt:
+One-shot agent prompt for applying an exported agent conversation to a model:
+
+```text
+Use Mindpack on my local agent chat export.
+
+Local export path: ./private-exports/agent-export.jsonl
+Goal:
+- Do not upload or paste the raw export anywhere external.
+- Run the Mindpack tests first.
+- Normalize the export with import-chat/ontology-workflow.
+- If the export is private and not already reviewed, stop after pending candidates and show me candidate IDs to approve.
+- If I confirm it is already reviewed, run ontology-workflow with --approve-all-tagged.
+- Validate the compiled pack.
+- Produce samples/runtime_context.md.
+- Show me exactly how to pass that runtime context as the system/developer/context message to my next model call.
+```
+
+One-shot agent prompt for the bundled wiki demo:
 
 ```text
 Clone https://github.com/ForOurDream-DMS/Mindpack, run the tests, generate the bundled Founder Idea Evaluator wiki, compile it into a Mindpack, validate it, and create runtime context for this question: "Should this idea continue after strict commerce validation?" Report the generated files and validation result. Do not publish generated dist output unless I explicitly ask.
